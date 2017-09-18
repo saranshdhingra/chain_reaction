@@ -7,7 +7,8 @@ var tile_width=40,
 	tile_map,
 	clicked=false,
 	animating=false,
-	atoms=[],
+	cells=[],
+	running_tweens=0,
 	turn="red";
 
 function preload() {
@@ -23,28 +24,11 @@ function create() {
 		var row=[]
 		for(var j=0;j<num_cols;j++){
 			var data;
-			if(i==0 && j==0)
-				data={color:null,balls:[]};
-			else if(i==0 && j==num_cols-1)
-				data={color:null,balls:[]};
-			else if(i==num_rows-1 && j==0)
-				data={color:null,balls:[]};
-			else if(i==num_rows-1 && j==num_cols-1)
-				data={color:null,balls:[]};
-			else if(i==0)
-				data={color:null,balls:[]}
-			else if(i==num_rows-1)
-				data={color:null,balls:[]};
-			else if(j==0)
-				data={color:null,balls:[]};
-			else if(j==num_cols-1)
-				data={color:null,balls:[]};
-			else
-				data={color:null,balls:[]};
+			data=new Cell(i,j,null);
 			// atoms[i][j]=data;
 			row.push(data);
 		}
-		atoms.push(row);
+		cells.push(row);
 	}
 }
 
@@ -55,6 +39,11 @@ function update() {
 	else if(game.input.mousePointer.isUp){
 		clicked=false;
 	}
+	if(running_tweens>0){
+		animating=true;
+	}
+	else
+		animating=false;
 }
 
 function onClick(){
@@ -63,183 +52,132 @@ function onClick(){
 		return;
 	}
 	clicked=true;
-	animating=true;
 
 	var col=Math.floor(game.input.activePointer.worldX/tile_width),
 		row=Math.floor(game.input.activePointer.worldY/tile_width),
-		atom=atoms[row][col];
-
-	// console.log(row,col);
+		cell=cells[row][col];
 
 	//firstly don't let the player do anything if this atom has another color
-	if(atom.color!=null && atom.color!=turn){
-		animating=false;
+	if(cell.color!=null && cell.color!=turn){
 		return false;
 	}
 
-	addAtom(row,col,function(){
-		next_turn();
-		animating=false;
-	});
-}
-
-function addAtom(row,col,onComplete){
-	var atom=atoms[row][col];
-
-	atom.color=turn;
-	atom.balls.push(draw_atom(row,col));
-
-	//split the atom if number of balls has become equal to the number of neighbours
-	if(atom_needs_split(row,col)){
-		split_atoms(row,col,function(){
-			console.log("addAtom oncomplete being called");
-			onComplete();
-		});
-		// console.log(atom.balls.length,neighbours);
-	}
-	else{
-		align_balls(atom);
-		onComplete();
-	}
-}
-
-function draw_atom(row,col,color){
-	var atom=atoms[row][col],
-		x=col*tile_width + tile_width/2,
-		y=row*tile_width + tile_width/2,
-		ball_str,
-		ball;
-
-	if(color===undefined){
-		ball_str=turn=="red"?'ball_red':'ball_green';
-	}
-	else
-		ball_str=color=="red"?"ball_red":"ball_green";
-
-	ball=game.add.sprite(x,y,ball_str);
-	ball.anchor.set(0.5);
-	return ball;
-}
-
-function split_atoms(row,col,onComplete){
-	console.log("split_atoms called for,",row,col);
-	var atom=atoms[row][col],
-		balls=atom.balls,
-		color=atom.color,
-		neighbours=get_neighbours(row,col);
-	
-	atom.balls=[];
-	atom.color=null;
-	for(var k=0;k<balls.length;k++){
-		var ball=balls[k],
-			neighbour=neighbours[k];
-
-		move_ball_to_neighbour(balls,color,neighbour,ball,k,function(index){
-			//this will run only after all balls have been moved to the neighbours
-			if(index==balls.length-1){
-				console.log("inner callback");
-				// console.log("split_atoms() running for",row,col);
-				onComplete();
-			}
-		});
-	}
-}
-
-function get_neighbours(x,y){
-	var neighbours=[];
-	if(x-1>=0)
-		neighbours.push([x-1,y]);
-	if(x+1<num_cols)
-		neighbours.push([x+1,y]);
-	if(y-1>=0)
-		neighbours.push([x,y-1]);
-	if(y+1<num_rows)
-		neighbours.push([x,y+1]);
-	
-	return neighbours;
-}
-
-function move_ball_to_neighbour(balls,color,neighbour,ball,ball_index,callback){
-	var row=neighbour[0],
-		col=neighbour[1],
-		x=col*tile_width+tile_width/2,
-		y=row*tile_width+tile_width/2,
-		neighbour_atom=atoms[row][col],
-		tween=game.add.tween(ball);
-
-	// console.log(neighbour_atom);
-
-	tween.to({x:x,y:y},600,'Linear',true,0);
-	tween.onComplete.add(function(){
-		neighbour_atom.balls.push(ball);
-		// console.log(neighbour_atom.color,turn);
-		if(neighbour_atom.color!=null && neighbour_atom.color!=color){
-			console.log("changing color",row,col,color,neighbour_atom.color);
-			change_atom_color(row,col,color);
-		}
-		if(atom_needs_split(row,col)){
-			console.log("atom needs a split");
-			split_atoms(row,col,function(){
-				console.log("split complete");
-				callback(ball_index);
-			});
-		}
-		else{
-			align_balls(neighbour_atom);
-			callback(ball_index);
-		}
-		// else
-		// 	addAtom(i,j,ball);
-		// atom.balls.splice(ball_index,1);
-	},this);
-}
-
-function change_atom_color(row,col,color){
-	var atom=atoms[row][col],
-		num_atoms=atom.balls.length;
-
-	atom.color=color;
-	atom.balls.forEach(function(ball){
-		ball.destroy();
-	});
-	atom.balls=[];
-
-	for(var k=0;k<num_atoms;k++){
-		atom.balls.push(draw_atom(row,col,color))
-	}
-}
-
-//since all balls shouldn't be superimposed
-//this function moves the balls so that all are visible
-function align_balls(atom){
-	if(atom.balls.length==2){
-		atom.balls[0].x-=2;
-		atom.balls[0].y-=2;
-		
-		atom.balls[1].x+=2;
-		atom.balls[1].y+=2;
-	}
-	else if(atom.balls.length==3){
-		atom.balls[0].y-=4;
-		
-		atom.balls[1].x-=4;
-		atom.balls[1].y+=4;
-		
-		atom.balls[2].x+=4;
-		atom.balls[2].y+=4;	
-	}
-}
-
-function atom_needs_split(row,col){
-	var atom=atoms[row][col],
-		neighbours=get_neighbours(row,col);
-
-	if(atom.balls.length == neighbours.length)
-		return true;
-
-	return false;
+	cell.draw_atom(turn);
+	cell.split_if_needed();
+	next_turn();
 }
 
 function next_turn(){
 	turn=turn=="red"?"green":"red";
+}
+
+function Cell(row,col,color){
+	this.row=row;
+	this.col=col;
+	this.color=color;
+	this.atoms=[];
+	this.draw_atom=function(color){
+		var x=this.col*tile_width + tile_width/2,
+			y=this.row*tile_width + tile_width/2,
+			atom;
+
+		this.color=color;
+
+		atom=game.add.sprite(x,y,"ball_"+color);
+		atom.anchor.set(0.5);
+		this.atoms.push(atom);
+	}
+	this.split_if_needed=function(){
+		if(this.atoms.length==this.neighbours().length){
+			// console.log("needs split",this.row,this.col,this.atoms.length,this.neighbours());
+			// console.log()
+			this.split_atoms();
+		}
+		else{
+			this.align_atoms();
+		}
+	}
+	this.split_atoms=function(){
+		var promises=[],
+			cell=this;
+		// console.log("splitting for cells:",this.row,this.col);
+		running_tweens+=this.atoms.length;
+		for(var k=0;k<this.atoms.length;k++){
+			(function(){
+				var index=k,
+					atom=this.atoms[k],
+					neighbour=this.neighbours()[k];
+
+				promises[k]=new Promise((resolve,reject)=>{
+					var tween=game.add.tween(atom),
+						x=neighbour.col*tile_width+tile_width/2,
+						y=neighbour.row*tile_width+tile_width/2;
+
+					tween.to({x:x,y:y},600,'Linear',true,0).start();
+					// console.log(index,tween);
+					tween.onComplete.add(function(){
+						// console.log("tween completed",index);
+						neighbour.atoms.push(atom);
+						neighbour.change_color(cell.color);
+						neighbour.split_if_needed();
+						// console.log("test");
+						resolve();
+					});
+				});
+			}.bind(this))();
+		}
+		Promise.all(promises).then(function(){
+			running_tweens-=cell.atoms.length;
+			cell.atoms=[];
+			cell.color=null;
+		});
+	}
+	this.neighbours=function(){
+		var neighbours=[];
+		if(this.row-1>=0)
+			neighbours.push(cells[this.row-1][this.col]);
+		if(this.row+1<num_cols)
+			neighbours.push(cells[this.row+1][this.col]);
+		if(this.col-1>=0)
+			neighbours.push(cells[this.row][this.col-1]);
+		if(this.col+1<num_rows)
+			neighbours.push(cells[this.row][this.col+1]);
+		
+		return neighbours;
+	}
+	this.change_color=function(color){
+		// console.log("running change_color on ",this.row,this.col);
+		if(this.color!=color){
+			var num_atoms=this.atoms.length;
+			this.atoms.forEach(function(atom){
+				atom.destroy();
+			});
+			this.atoms=[];
+
+			for(var k=0;k<num_atoms;k++){
+				// this.atoms.push(this.draw_atom(row,col,color))
+				this.draw_atom(color);
+			}
+		}
+		this.color=color;
+		// console.log("ended change_color");
+	}
+	this.align_atoms=function(){
+		if(this.atoms.length==2){
+			this.atoms[0].x-=2;
+			this.atoms[0].y-=2;
+			
+			this.atoms[1].x+=2;
+			this.atoms[1].y+=2;
+		}
+		else if(this.atoms.length==3){
+			this.atoms[0].y-=4;
+			
+			this.atoms[1].x-=4;
+			this.atoms[1].y+=4;
+			
+			this.atoms[2].x+=4;
+			this.atoms[2].y+=4;	
+		}
+	}
 }
